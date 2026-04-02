@@ -17,10 +17,9 @@ import {
 import { ChatBox } from "@/components/dashboard/chat-box"
 import { BudgetSuggestions } from "@/components/dashboard/budget-suggestions"
 import { ProfileMenu } from "@/components/dashboard/profile-menu"
+import { HistoryOverview } from "@/components/dashboard/history-overview"
 import { TransactionsView } from "./transactions-view"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DashboardOverview } from "@/components/dashboard/dashboard-overview"
 import { cn } from "@/lib/utils"
 
@@ -82,16 +81,7 @@ export function DashboardShell({
     }
 
     if (activeView === "history") {
-      return (
-        <Card className="border-slate-200/80 bg-white/85 dark:border-slate-700/70 dark:bg-slate-900/70">
-          <CardHeader>
-            <CardTitle className="text-slate-900 dark:text-slate-100">History Timeline</CardTitle>
-          </CardHeader>
-          <CardContent className="text-slate-600 dark:text-slate-300">
-            Your monthly trends will appear here once enough data is recorded.
-          </CardContent>
-        </Card>
-      )
+      return <HistoryOverview />
     }
 
     return <DashboardOverview />
@@ -213,9 +203,6 @@ export function DashboardShell({
                   <p className="text-slate-600">{sectionDescription}</p>
                 </div>
               </div>
-              <Badge className="hidden border-emerald-200 bg-white/80 text-emerald-700 md:inline-flex dark:border-emerald-800 dark:bg-slate-900/70 dark:text-emerald-300">
-                Secured Session
-              </Badge>
             </header>
           )}
 
