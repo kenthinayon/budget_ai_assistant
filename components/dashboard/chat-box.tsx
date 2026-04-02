@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 export function ChatBox({ onClose }: { onClose?: () => void }) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [input, setInput] = useState("")
+  const [analysisMode, setAnalysisMode] = useState<"aggregate" | "deep">("aggregate")
   const [historyError, setHistoryError] = useState<string | null>(null)
   const hasLoadedHistoryRef = useRef(false)
   const lastPersistedSignatureRef = useRef("")
@@ -113,20 +114,29 @@ export function ChatBox({ onClose }: { onClose?: () => void }) {
     lastPersistedSignatureRef.current = signature
 
     const persistHistory = async () => {
-      const response = await fetch("/api/chat/history", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ messages: serializableMessages }),
-      })
+      try {
+        const response = await fetch("/api/chat/history", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ messages: serializableMessages }),
+        })
 
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as
+            | { error?: string }
+            | null
 
-        setHistoryError(body?.error ?? "Failed to save chat history")
+          setHistoryError(body?.error ?? "Failed to save chat history")
+          return
+        }
+
+        setHistoryError(null)
+      } catch (error) {
+        setHistoryError(
+          error instanceof Error ? error.message : "Failed to save chat history"
+        )
       }
     }
 
@@ -139,20 +149,26 @@ export function ChatBox({ onClose }: { onClose?: () => void }) {
     setMessages([])
     lastPersistedSignatureRef.current = JSON.stringify([])
 
-    const response = await fetch("/api/chat/history", {
-      method: "DELETE",
-    })
+    try {
+      const response = await fetch("/api/chat/history", {
+        method: "DELETE",
+      })
 
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null
 
-      setHistoryError(body?.error ?? "Failed to clear chat history")
-      return
+        setHistoryError(body?.error ?? "Failed to clear chat history")
+        return
+      }
+
+      setHistoryError(null)
+    } catch (error) {
+      setHistoryError(
+        error instanceof Error ? error.message : "Failed to clear chat history"
+      )
     }
-
-    setHistoryError(null)
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -161,7 +177,12 @@ export function ChatBox({ onClose }: { onClose?: () => void }) {
     if (!text || status !== "ready") return
 
     setInput("")
-    await sendMessage({ text })
+    await sendMessage(
+      { text },
+      {
+        body: { analysisMode },
+      }
+    )
   }
 
   return (
@@ -183,7 +204,11 @@ export function ChatBox({ onClose }: { onClose?: () => void }) {
             <h3 className="flex items-center gap-2 font-semibold text-slate-800 dark:text-slate-100">
               Kent AI
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Your personal financial advisor</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {analysisMode === "aggregate"
+                ? "Safe mode: summary-based analysis"
+                : "Deep mode: full transaction pattern analysis"}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -265,6 +290,34 @@ export function ChatBox({ onClose }: { onClose?: () => void }) {
 
       {/* Input Area */}
       <div className="border-t border-slate-100 p-4 dark:border-slate-800">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Analysis mode:</span>
+          <button
+            type="button"
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-medium transition",
+              analysisMode === "aggregate"
+                ? "bg-emerald-500 text-white"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            )}
+            onClick={() => setAnalysisMode("aggregate")}
+          >
+            Safe (Monthly Aggregates)
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-medium transition",
+              analysisMode === "deep"
+                ? "bg-cyan-600 text-white"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            )}
+            onClick={() => setAnalysisMode("deep")}
+          >
+            Deep (Full Pattern)
+          </button>
+        </div>
+
         {historyError && (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
             {historyError}
