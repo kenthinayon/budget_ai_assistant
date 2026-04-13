@@ -61,6 +61,12 @@ function monthLabelFromKey(key: string) {
   return dt.toLocaleDateString("en-PH", { month: "short", year: "numeric" })
 }
 
+function sixMonthWindowStartIso() {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth() - 5, 1)
+  return start.toISOString().slice(0, 10)
+}
+
 export function HistoryOverview() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [budgetLimits, setBudgetLimits] = useState<BudgetLimit[]>([])
@@ -87,8 +93,9 @@ export function HistoryOverview() {
         .from("transactions")
         .select("id, tx_date, category, type, amount")
         .eq("user_id", user.id)
+        .gte("tx_date", sixMonthWindowStartIso())
         .order("tx_date", { ascending: false })
-        .limit(1200),
+        .limit(2000),
       supabase
         .from("budget_limits")
         .select("id, category, monthly_limit")
@@ -123,33 +130,60 @@ export function HistoryOverview() {
     return keys
   }, [])
 
+  const monthBuckets = useMemo(() => {
+    const buckets = new Map<
+      string,
+      {
+        income: number
+        expenses: number
+        expenseByCategory: Map<string, number>
+      }
+    >()
+
+    for (const key of monthKeys) {
+      buckets.set(key, {
+        income: 0,
+        expenses: 0,
+        expenseByCategory: new Map<string, number>(),
+      })
+    }
+
+    for (const tx of transactions) {
+      const key = tx.tx_date.slice(0, 7)
+      const bucket = buckets.get(key)
+      if (!bucket) continue
+
+      const amount = Number(tx.amount)
+      if (tx.type === "income") {
+        bucket.income += amount
+        continue
+      }
+
+      bucket.expenses += amount
+      bucket.expenseByCategory.set(
+        tx.category,
+        (bucket.expenseByCategory.get(tx.category) ?? 0) + amount
+      )
+    }
+
+    return buckets
+  }, [transactions, monthKeys])
+
   const trendRows = useMemo<MonthStat[]>(() => {
     const limitByCategory = new Map(
       budgetLimits.map((row) => [row.category, Number(row.monthly_limit)])
     )
 
     return monthKeys.map((key) => {
-      const monthTx = transactions.filter((tx) => tx.tx_date.startsWith(key))
-
-      const income = monthTx
-        .filter((tx) => tx.type === "income")
-        .reduce((sum, tx) => sum + Number(tx.amount), 0)
-
-      const expenses = monthTx
-        .filter((tx) => tx.type === "expense")
-        .reduce((sum, tx) => sum + Number(tx.amount), 0)
+      const bucket = monthBuckets.get(key)
+      const income = bucket?.income ?? 0
+      const expenses = bucket?.expenses ?? 0
 
       const net = income - expenses
       const savingsRate = income > 0 ? Math.max(0, Math.round((net / income) * 100)) : 0
 
-      const expenseByCategory = new Map<string, number>()
-      for (const tx of monthTx) {
-        if (tx.type !== "expense") continue
-        expenseByCategory.set(tx.category, (expenseByCategory.get(tx.category) ?? 0) + Number(tx.amount))
-      }
-
       let overLimitCount = 0
-      for (const [category, spent] of expenseByCategory) {
+      for (const [category, spent] of bucket?.expenseByCategory ?? new Map()) {
         const limit = limitByCategory.get(category)
         if (!limit || limit <= 0) continue
         if (spent > limit) overLimitCount += 1
@@ -165,7 +199,7 @@ export function HistoryOverview() {
         overLimitCount,
       }
     })
-  }, [transactions, budgetLimits, monthKeys])
+  }, [monthBuckets, budgetLimits, monthKeys])
 
   const currentMonthStat = trendRows[trendRows.length - 1]
   const previousMonthStat = trendRows[trendRows.length - 2]
@@ -180,20 +214,10 @@ export function HistoryOverview() {
   const categoryChangeRows = useMemo(() => {
     if (!currentMonthStat || !previousMonthStat) return []
 
-    const currentByCategory = new Map<string, number>()
-    const previousByCategory = new Map<string, number>()
-
-    for (const tx of transactions) {
-      if (tx.type !== "expense") continue
-
-      if (tx.tx_date.startsWith(currentMonthStat.key)) {
-        currentByCategory.set(tx.category, (currentByCategory.get(tx.category) ?? 0) + Number(tx.amount))
-      }
-
-      if (tx.tx_date.startsWith(previousMonthStat.key)) {
-        previousByCategory.set(tx.category, (previousByCategory.get(tx.category) ?? 0) + Number(tx.amount))
-      }
-    }
+    const currentByCategory =
+      monthBuckets.get(currentMonthStat.key)?.expenseByCategory ?? new Map<string, number>()
+    const previousByCategory =
+      monthBuckets.get(previousMonthStat.key)?.expenseByCategory ?? new Map<string, number>()
 
     const categories = new Set<string>([
       ...currentByCategory.keys(),
@@ -218,7 +242,7 @@ export function HistoryOverview() {
       })
       .sort((a, b) => b.absChange - a.absChange)
       .slice(0, 6)
-  }, [transactions, currentMonthStat, previousMonthStat])
+  }, [monthBuckets, currentMonthStat, previousMonthStat])
 
   return (
     <div className="space-y-6">

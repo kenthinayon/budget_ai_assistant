@@ -87,6 +87,7 @@ export function ChatBox({ onClose }: { onClose?: () => void }) {
 
   useEffect(() => {
     if (!hasLoadedHistoryRef.current) return
+    if (status !== "ready") return
 
     const serializableMessages = messages
       .filter((message) => message.role === "assistant" || message.role === "user")
@@ -141,7 +142,7 @@ export function ChatBox({ onClose }: { onClose?: () => void }) {
     }
 
     void persistHistory()
-  }, [messages])
+  }, [messages, status])
 
   const handleQuickQuestion = (q: string) => setInput(q)
 

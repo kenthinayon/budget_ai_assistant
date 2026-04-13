@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   ArrowDown,
@@ -135,6 +135,8 @@ const peso = new Intl.NumberFormat("en-PH", {
   maximumFractionDigits: 0,
 })
 
+const TRANSACTIONS_PAGE_SIZE = 40
+
 function dateToIso(date: Date) {
   return date.toISOString().slice(0, 10)
 }
@@ -164,6 +166,8 @@ export function TransactionsView() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [budgetLimits, setBudgetLimits] = useState<BudgetLimit[]>([])
   const [recurringItems, setRecurringItems] = useState<RecurringTransaction[]>([])
+  const [totalTransactionCount, setTotalTransactionCount] = useState(0)
+  const [currentPage, setCurrentPage] = useState(1)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
@@ -181,6 +185,7 @@ export function TransactionsView() {
 
   const [budgetCategory, setBudgetCategory] = useState("Food & Groceries")
   const [budgetAmount, setBudgetAmount] = useState("")
+  const recurringAppliedRef = useRef(false)
 
   const applyRecurringTransactions = useCallback(async () => {
     const supabase = getSupabaseBrowserClient()
@@ -273,15 +278,39 @@ export function TransactionsView() {
       return
     }
 
-    await applyRecurringTransactions()
+    if (!recurringAppliedRef.current) {
+      await applyRecurringTransactions()
+      recurringAppliedRef.current = true
+    }
+
+    const offset = (currentPage - 1) * TRANSACTIONS_PAGE_SIZE
+    const txTo = offset + TRANSACTIONS_PAGE_SIZE - 1
+    const trimmedSearch = search.trim()
 
     const [txRes, budgetRes, recurringRes] = await Promise.all([
-      supabase
-        .from("transactions")
-        .select("id, tx_date, description, category, type, amount")
-        .eq("user_id", user.id)
-        .order("tx_date", { ascending: false })
-        .order("created_at", { ascending: false }),
+      (() => {
+        let query = supabase
+          .from("transactions")
+          .select("id, tx_date, description, category, type, amount", { count: "exact" })
+          .eq("user_id", user.id)
+
+        if (typeFilter !== "all") {
+          query = query.eq("type", typeFilter)
+        }
+
+        if (categoryFilter !== "all") {
+          query = query.eq("category", categoryFilter)
+        }
+
+        if (trimmedSearch) {
+          query = query.or(`description.ilike.%${trimmedSearch}%,category.ilike.%${trimmedSearch}%`)
+        }
+
+        return query
+          .order("tx_date", { ascending: false })
+          .order("created_at", { ascending: false })
+          .range(offset, txTo)
+      })(),
       supabase
         .from("budget_limits")
         .select("id, category, monthly_limit")
@@ -300,34 +329,32 @@ export function TransactionsView() {
     }
 
     setTransactions((txRes.data as Transaction[]) ?? [])
+    setTotalTransactionCount(txRes.count ?? 0)
     setBudgetLimits((budgetRes.data as BudgetLimit[]) ?? [])
     setRecurringItems((recurringRes.data as RecurringTransaction[]) ?? [])
     setIsLoading(false)
-  }, [applyRecurringTransactions])
+  }, [
+    applyRecurringTransactions,
+    categoryFilter,
+    currentPage,
+    search,
+    typeFilter,
+  ])
 
   useEffect(() => {
     void loadAll()
   }, [loadAll])
 
-  const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx) => {
-      const matchesSearch =
-        tx.description.toLowerCase().includes(search.toLowerCase()) ||
-        tx.category.toLowerCase().includes(search.toLowerCase())
-
-      const matchesType = typeFilter === "all" || tx.type === typeFilter
-      const matchesCategory = categoryFilter === "all" || tx.category === categoryFilter
-
-      return matchesSearch && matchesType && matchesCategory
-    })
-  }, [transactions, search, typeFilter, categoryFilter])
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [search, typeFilter, categoryFilter])
 
   const totals = useMemo(() => {
-    const income = filteredTransactions
+    const income = transactions
       .filter((tx) => tx.type === "income")
       .reduce((sum, tx) => sum + Number(tx.amount), 0)
 
-    const expenses = filteredTransactions
+    const expenses = transactions
       .filter((tx) => tx.type === "expense")
       .reduce((sum, tx) => sum + Number(tx.amount), 0)
 
@@ -336,7 +363,7 @@ export function TransactionsView() {
       expenses,
       balance: income - expenses,
     }
-  }, [filteredTransactions])
+  }, [transactions])
 
   const currentMonth = new Date().toISOString().slice(0, 7)
 
@@ -380,6 +407,10 @@ export function TransactionsView() {
 
     return Array.from(unique)
   }, [transactions, budgetLimits, recurringItems])
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(totalTransactionCount / TRANSACTIONS_PAGE_SIZE))
+  }, [totalTransactionCount])
 
   const openCreateTxModal = () => {
     setTxForm(INITIAL_TX_FORM)
@@ -655,7 +686,7 @@ export function TransactionsView() {
   const exportCsv = () => {
     const header = ["Date", "Description", "Category", "Type", "Amount"]
 
-    const rows = filteredTransactions.map((tx) => [
+    const rows = transactions.map((tx) => [
       tx.tx_date,
       tx.description,
       tx.category,
@@ -711,7 +742,7 @@ export function TransactionsView() {
           <CardContent>
             <p className="text-5xl font-semibold text-emerald-600">{peso.format(totals.income)}</p>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              {filteredTransactions.filter((tx) => tx.type === "income").length} transactions
+              {transactions.filter((tx) => tx.type === "income").length} items on this page
             </p>
           </CardContent>
         </Card>
@@ -722,7 +753,7 @@ export function TransactionsView() {
           <CardContent>
             <p className="text-5xl font-semibold text-rose-500">{peso.format(totals.expenses)}</p>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              {filteredTransactions.filter((tx) => tx.type === "expense").length} transactions
+              {transactions.filter((tx) => tx.type === "expense").length} items on this page
             </p>
           </CardContent>
         </Card>
@@ -734,7 +765,7 @@ export function TransactionsView() {
             <p className={cn("text-5xl font-semibold", totals.balance >= 0 ? "text-emerald-600" : "text-rose-500")}>
               {peso.format(totals.balance)}
             </p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Based on current filters</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Based on current page</p>
           </CardContent>
         </Card>
       </div>
@@ -923,7 +954,9 @@ export function TransactionsView() {
       <Card className="border-slate-200/80 bg-white/85 dark:border-slate-700/70 dark:bg-slate-900/70">
         <CardHeader>
           <CardTitle className="text-3xl text-slate-900 dark:text-slate-100">Recorded Transactions (Ledger)</CardTitle>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{filteredTransactions.length} transaction(s) found</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {totalTransactionCount} transaction(s) found • page {currentPage} of {totalPages}
+          </p>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -941,7 +974,7 @@ export function TransactionsView() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTransactions.map((tx) => (
+                {transactions.map((tx) => (
                   <TableRow key={tx.id}>
                     <TableCell>{new Date(tx.tx_date).toLocaleDateString()}</TableCell>
                     <TableCell className="font-medium">{tx.description}</TableCell>
@@ -976,6 +1009,32 @@ export function TransactionsView() {
                 ))}
               </TableBody>
             </Table>
+          )}
+
+          {!isLoading && totalTransactionCount > 0 && (
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Showing {transactions.length} rows per page (max {TRANSACTIONS_PAGE_SIZE})
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           )}
 
           {error && (

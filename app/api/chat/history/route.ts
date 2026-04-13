@@ -10,6 +10,16 @@ type ChatHistoryRequestBody = {
   }>
 }
 
+type PostgrestLikeError = {
+  code?: string
+  message?: string
+}
+
+function isMissingChatMessagesTable(error: PostgrestLikeError | null) {
+  // Postgres undefined_table
+  return error?.code === "42P01"
+}
+
 export async function GET() {
   const supabase = await getSupabaseServerClient()
   const {
@@ -26,6 +36,11 @@ export async function GET() {
     .eq("user_id", user.id)
     .order("created_at", { ascending: true })
     .limit(200)
+
+  if (isMissingChatMessagesTable(error)) {
+    // Allow chat to keep working even if migration has not been applied yet.
+    return NextResponse.json({ messages: [] })
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -81,6 +96,10 @@ export async function PUT(request: Request) {
     .from("chat_messages")
     .upsert(rows, { onConflict: "user_id,message_id" })
 
+  if (isMissingChatMessagesTable(error)) {
+    return NextResponse.json({ ok: true })
+  }
+
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
@@ -102,6 +121,10 @@ export async function DELETE() {
     .from("chat_messages")
     .delete()
     .eq("user_id", user.id)
+
+  if (isMissingChatMessagesTable(error)) {
+    return NextResponse.json({ ok: true })
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

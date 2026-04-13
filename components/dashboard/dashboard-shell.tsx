@@ -1,7 +1,7 @@
 "use client"
 
-import Link from "next/link"
-import { useMemo, useState } from "react"
+import dynamic from "next/dynamic"
+import { useEffect, useMemo, useState } from "react"
 import {
   BotMessageSquare,
   ChevronsLeft,
@@ -14,14 +14,53 @@ import {
   X,
 } from "lucide-react"
 
-import { ChatBox } from "@/components/dashboard/chat-box"
-import { BudgetSuggestions } from "@/components/dashboard/budget-suggestions"
 import { ProfileMenu } from "@/components/dashboard/profile-menu"
-import { HistoryOverview } from "@/components/dashboard/history-overview"
-import { TransactionsView } from "./transactions-view"
 import { Button } from "@/components/ui/button"
-import { DashboardOverview } from "@/components/dashboard/dashboard-overview"
 import { cn } from "@/lib/utils"
+
+const ChatBox = dynamic(
+  () => import("@/components/dashboard/chat-box").then((mod) => mod.ChatBox),
+  {
+    ssr: false,
+  }
+)
+
+const DashboardOverview = dynamic(
+  () =>
+    import("@/components/dashboard/dashboard-overview").then(
+      (mod) => mod.DashboardOverview
+    ),
+  {
+    loading: () => <SectionLoadingFallback />,
+  }
+)
+
+const TransactionsView = dynamic(
+  () => import("./transactions-view").then((mod) => mod.TransactionsView),
+  {
+    loading: () => <SectionLoadingFallback />,
+  }
+)
+
+const BudgetSuggestions = dynamic(
+  () =>
+    import("@/components/dashboard/budget-suggestions").then(
+      (mod) => mod.BudgetSuggestions
+    ),
+  {
+    loading: () => <SectionLoadingFallback />,
+  }
+)
+
+const HistoryOverview = dynamic(
+  () =>
+    import("@/components/dashboard/history-overview").then(
+      (mod) => mod.HistoryOverview
+    ),
+  {
+    loading: () => <SectionLoadingFallback />,
+  }
+)
 
 type DashboardView = "dashboard" | "transactions" | "budget" | "history"
 
@@ -42,45 +81,67 @@ const menuItems: Array<{
   { key: "history", label: "History", icon: History },
 ]
 
+function SectionLoadingFallback() {
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white/85 p-6 text-sm text-slate-600 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
+      Loading section...
+    </div>
+  )
+}
+
 export function DashboardShell({
   displayName,
   email,
   activeView,
 }: DashboardShellProps) {
+  const [currentView, setCurrentView] = useState<DashboardView>(activeView)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
 
-  const sectionTitle = useMemo(() => {
-    if (activeView === "transactions") return "Transactions"
-    if (activeView === "budget") return "Budget"
-    if (activeView === "history") return "History"
-    return "Financial Dashboard"
+  useEffect(() => {
+    setCurrentView(activeView)
   }, [activeView])
 
+  const handleViewChange = (nextView: DashboardView) => {
+    setCurrentView(nextView)
+    setIsSidebarOpen(false)
+
+    const url = new URL(window.location.href)
+    url.searchParams.set("view", nextView)
+    window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}`)
+  }
+
+  const sectionTitle = useMemo(() => {
+    if (currentView === "transactions") return "Transactions"
+    if (currentView === "budget") return "Budget"
+    if (currentView === "history") return "History"
+    return "Financial Dashboard"
+  }, [currentView])
+
   const sectionDescription = useMemo(() => {
-    if (activeView === "transactions") {
+    if (currentView === "transactions") {
       return "Track income and expenses with clean transaction records."
     }
-    if (activeView === "budget") {
+    if (currentView === "budget") {
       return "Get starter guidance and set budget limits that fit your real income."
     }
-    if (activeView === "history") {
+    if (currentView === "history") {
       return "Review your past performance and recurring patterns."
     }
     return "AI-powered insights and budget tracking"
-  }, [activeView])
+  }, [currentView])
 
   const renderContent = () => {
-    if (activeView === "transactions") {
+    if (currentView === "transactions") {
       return <TransactionsView />
     }
 
-    if (activeView === "budget") {
+    if (currentView === "budget") {
       return <BudgetSuggestions />
     }
 
-    if (activeView === "history") {
+    if (currentView === "history") {
       return <HistoryOverview />
     }
 
@@ -127,13 +188,13 @@ export function DashboardShell({
           <nav className="mt-8 space-y-2">
             {menuItems.map((item) => {
               const Icon = item.icon
-              const isActive = activeView === item.key
+              const isActive = currentView === item.key
 
               return (
-                <Link
+                <button
                   key={item.key}
-                  href={`/dashboard?view=${item.key}`}
-                  onClick={() => setIsSidebarOpen(false)}
+                  type="button"
+                  onClick={() => handleViewChange(item.key)}
                   title={isSidebarCollapsed ? item.label : undefined}
                   className={cn(
                     "flex h-12 items-center rounded-xl text-sm font-medium transition",
@@ -145,7 +206,7 @@ export function DashboardShell({
                 >
                   <Icon className="size-4" />
                   <span className={cn(isSidebarCollapsed && "lg:hidden")}>{item.label}</span>
-                </Link>
+                </button>
               )
             })}
           </nav>
@@ -169,7 +230,7 @@ export function DashboardShell({
         )}
 
         <section className="flex-1 p-4 md:p-6 lg:p-8">
-          {activeView !== "transactions" && (
+          {currentView !== "transactions" && (
             <header className="mb-6 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Button
@@ -206,7 +267,7 @@ export function DashboardShell({
             </header>
           )}
 
-          {activeView === "transactions" && (
+          {currentView === "transactions" && (
             <div className="mb-4 flex items-center gap-2">
               <Button
                 type="button"
