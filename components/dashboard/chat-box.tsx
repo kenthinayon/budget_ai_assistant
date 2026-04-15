@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { sanitizeAiText } from "@/lib/ai/response-cleaner"
 import { cn } from "@/lib/utils"
 
 export function ChatBox({ onClose }: { onClose?: () => void }) {
@@ -60,7 +61,15 @@ export function ChatBox({ onClose }: { onClose?: () => void }) {
         const loadedMessages: UIMessage[] = (body.messages ?? []).map((message) => ({
           id: message.id,
           role: message.role,
-          parts: [{ type: "text", text: message.content }],
+          parts: [
+            {
+              type: "text",
+              text:
+                message.role === "assistant"
+                  ? sanitizeAiText(message.content)
+                  : message.content,
+            },
+          ],
         }))
 
         if (!isCancelled) {
@@ -101,7 +110,8 @@ export function ChatBox({ onClose }: { onClose?: () => void }) {
         return {
           id: message.id,
           role: message.role,
-          content,
+          content:
+            message.role === "assistant" ? sanitizeAiText(content) : content,
         }
       })
       .filter((message) => message.content.length > 0)
@@ -276,11 +286,15 @@ export function ChatBox({ onClose }: { onClose?: () => void }) {
                     : "bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100"
                 )}
               >
-                <div className="prose prose-sm prose-emerald max-w-none dark:prose-invert whitespace-pre-wrap">
+                <div className="max-w-none whitespace-pre-wrap leading-relaxed">
                   {m.parts
                     .filter((part) => part.type === "text")
                     .map((part, index) => (
-                      <p key={`${m.id}-${index}`}>{part.text}</p>
+                      <p key={`${m.id}-${index}`}>
+                        {m.role === "assistant"
+                          ? sanitizeAiText(part.text)
+                          : part.text}
+                      </p>
                     ))}
                 </div>
               </div>

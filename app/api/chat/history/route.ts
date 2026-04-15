@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { sanitizeAiText } from "@/lib/ai/response-cleaner"
 import { getSupabaseServerClient } from "@/lib/supabase/server-client"
 
 type ChatHistoryRequestBody = {
@@ -50,7 +51,10 @@ export async function GET() {
     messages: (data ?? []).map((message) => ({
       id: message.message_id,
       role: message.role,
-      content: message.content,
+      content:
+        message.role === "assistant"
+          ? sanitizeAiText(message.content)
+          : message.content,
     })),
   })
 }
@@ -87,6 +91,13 @@ export async function PUT(request: Request) {
         message.content.trim().length > 0
       )
     })
+    .map((message) => ({
+      ...message,
+      content:
+        message.role === "assistant"
+          ? sanitizeAiText(message.content)
+          : message.content,
+    }))
 
   if (rows.length === 0) {
     return NextResponse.json({ ok: true })

@@ -2,6 +2,7 @@ import { streamText, type ModelMessage, type UIMessage } from "ai"
 
 import { getGroqModel } from "@/lib/ai/groq-client"
 import { KENT_SYSTEM_PROMPT } from "@/lib/ai/kent-system-prompt"
+import { sanitizeAiText } from "@/lib/ai/response-cleaner"
 import { getSupabaseServerClient } from "@/lib/supabase/server-client"
 
 export const dynamic = "force-dynamic"
@@ -50,7 +51,7 @@ function toGroqMessages(messages: UIMessage[]): ModelMessage[] {
       if (!text) continue
 
       if (message.role === "assistant") {
-        normalized.push({ role: "assistant", content: text })
+        normalized.push({ role: "assistant", content: sanitizeAiText(text) })
         continue
       }
 
